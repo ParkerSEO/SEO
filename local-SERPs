@@ -1,0 +1,147 @@
+# -*- coding: utf-8 -*-
+# ParkerSEO
+
+# =============================================================================
+# Mobile local pack SERPs
+# =============================================================================
+from serpapi.google_search_results import GoogleSearchResults
+import pandas as pd
+input_file = r'C:\Users\Desktop\SerpAPI\locations_File.csv'
+locations = pd.read_csv(input_file) # ,  encoding="cp1252"
+locations = list(locations['location'])
+final_df = pd.DataFrame()
+## LOOP THROUGH EACH URL TO PULL INFO
+for location in locations:
+    GoogleSearchResults.SERP_API_KEY = "Secret API Key"
+    params = {
+        "engine": "google",
+        "q": "credit repair",
+        "location": location,
+        "h1": "en",
+        "gl": "us",
+        "google_domain": "google.com",
+        "api_key": "Secret API Key",
+        "device": "mobile"
+    }
+    client = GoogleSearchResults(params)
+    results = client.get_dict()
+    try:
+        local_results=(results['local_results'])    
+        df = pd.DataFrame(local_results)
+        df['searched_location']= location
+        final_df = final_df.append(df)
+    except:
+        df['searched_location']= location
+        final_df = final_df.append(df)  
+    
+final_df = final_df[['position', 'title', 'rating', 'reviews', 'type', 'address', 'phone', 'searched_location']] 
+final_df.to_csv(r'C:\Users\Desktop\SerpAPI\local_pack_results_mobile.csv') 
+
+# =============================================================================
+# Desktop local pack SERPs
+# =============================================================================
+from serpapi.google_search_results import GoogleSearchResults
+import pandas as pd
+input_file = r'C:\Users\Desktop\SerpAPI\locations_File.csv'
+locations = pd.read_csv(input_file) # ,  encoding="cp1252"
+locations = list(locations['location'])
+final_df = pd.DataFrame()
+## LOOP THROUGH EACH URL TO PULL INFO
+for location in locations:
+    GoogleSearchResults.SERP_API_KEY = "Secret API Key"
+    params = {
+        "engine": "google",
+        "q": "credit repair",
+        "location": location,
+        "h1": "en",
+        "gl": "us",
+        "google_domain": "google.com",
+        "api_key": "Secret API Key",
+        "device": "Desktop"
+    }
+    client = GoogleSearchResults(params)
+    results = client.get_dict()
+    try:
+        local_results=(results['local_results'])   
+        places=(local_results['places']) 
+        df = pd.DataFrame(places)
+        df['searched_location']= location
+        final_df = final_df.append(df)
+    except:
+        df['searched_location']= location
+        final_df = final_df.append(df)  
+    
+final_df = final_df[['position', 'title', 'rating', 'reviews', 'type', 'address', 'phone', 'website', 'searched_location']]
+final_df.to_csv(r'C:\Users\Desktop\SerpAPI\local_pack_results_desktop.csv') 
+
+# =============================================================================
+# Mobile organic SERPs
+# =============================================================================
+from serpapi.google_search_results import GoogleSearchResults
+import pandas as pd
+input_file = r'C:\Users\Desktop\SerpAPI\locations_File.csv'
+locations = pd.read_csv(input_file) # ,  encoding="cp1252"
+locations = list(locations['location'])
+final_df = pd.DataFrame()
+## LOOP THROUGH EACH URL TO PULL INFO
+for location in locations:
+    GoogleSearchResults.SERP_API_KEY = "Secret API Key"
+    params = {
+        "engine": "google",
+        "q": "credit repair",
+        "location": location,
+        "h1": "en",
+        "gl": "us",
+        "google_domain": "google.com",
+        "api_key": "Secret API Key",
+        "device": "mobile"
+    }
+    client = GoogleSearchResults(params)
+    results = client.get_dict()
+    try:
+        organic_results=(results['organic_results'])   
+        df = pd.DataFrame(organic_results)
+        df['searched_location']= location
+        final_df = final_df.append(df)
+    except:
+        df['searched_location']= location
+        final_df = final_df.append(df)  
+    
+final_df = final_df[['position', 'title', 'link', 'searched_location']] 
+final_df.to_csv(r'C:\Users\Desktop\SerpAPI\organic_results_mobile.csv') 
+
+# =============================================================================
+# Desktop organic SERPs
+# =============================================================================
+from serpapi.google_search_results import GoogleSearchResults
+import pandas as pd
+input_file = r'C:\Users\Desktop\SerpAPI\locations_File.csv'
+locations = pd.read_csv(input_file) # ,  encoding="cp1252"
+locations = list(locations['location'])
+final_df = pd.DataFrame()
+## LOOP THROUGH EACH URL TO PULL INFO
+for location in locations:
+    GoogleSearchResults.SERP_API_KEY = "Secret API Key"
+    params = {
+        "engine": "google",
+        "q": "credit repair",
+        "location": location,
+        "h1": "en",
+        "gl": "us",
+        "google_domain": "google.com",
+        "api_key": "Secret API Key",
+        "device": "Desktop"
+    }
+    client = GoogleSearchResults(params)
+    results = client.get_dict()
+    try:
+        organic_results=(results['organic_results'])   
+        df = pd.DataFrame(organic_results)
+        df['searched_location']= location
+        final_df = final_df.append(df)
+    except:
+        df['searched_location']= location
+        final_df = final_df.append(df)  
+    
+final_df = final_df[['position', 'title', 'link', 'searched_location']] 
+final_df.to_csv(r'C:\Users\Desktop\SerpAPI\organic_results_desktop.csv') 
