@@ -1,0 +1,230 @@
+import urllib.parse
+import sqlalchemy
+import requests
+from datetime import datetime, timedelta
+import pandas as pd
+import googleapiclient
+from googleapiclient import discovery
+from googleapiclient.http import build_http
+from oauth2client import client
+from oauth2client import file
+from oauth2client import tools
+import time
+import httplib2
+import os
+import ssl
+
+
+#from requests.utils import DEFAULT_CA_BUNDLE_PATH
+#print(DEFAULT_CA_BUNDLE_PATH)
+##
+#print(ssl.get_default_verify_paths())
+##
+#cert = r'C:\Users\178842\certs\cypher.cer'
+#os.environ['SSL_CERT_FILE'] = os.path.join('/usr/local/ssl/cert.pem',r'C:\Users\178842\certs\cypher.cer')
+#os.environ['SSL_CERT_DIR'] = os.path.join(cert,'cypher.pem')
+
+#Set Database Connection
+params = urllib.parse.quote_plus('driver={SQL Server Native Client 10.0};server=SQLReportsappsl;database=ccom_staging;Integrated Security=SSPI;Trusted_Connection=yes;')
+engine = sqlalchemy.create_engine('mssql+pyodbc:///?odbc_connect=%s' % params)
+sql = 'select max(date) as max_date from CCOM_Staging.dbo.ccom_search_console_queries'
+sql2 = 'select max(date) as max_date from CCOM_Staging.dbo.ccom_blog_search_console_queries'
+# Set result df
+result = pd.DataFrame(columns=['date', 'query', 'page', 'position', 'impressions', 'clicks', 'ctr'])
+result2 = pd.DataFrame(columns=['date', 'query', 'page', 'position', 'impressions', 'clicks', 'ctr'])
+# Define search console fields
+try:
+    connection = engine.connect()
+    connection2 = engine.connect()
+    table = connection.execute(sql)
+    table2 = connection2.execute(sql2)
+except:
+    print('1')
+    quit()
+for row in table:
+    max_date = row['max_date']
+for row in table2:
+    max_date2 = row['max_date']
+start = datetime.strptime(max_date, '%Y-%m-%d').date() + timedelta(days=+1)
+stop = datetime.now().date() + timedelta(days=-1)
+start2 = datetime.strptime(max_date, '%Y-%m-%d').date() + timedelta(days=+1)
+stop2 = datetime.now().date() + timedelta(days=-1)
+propertyUri = 'https://www.credit.com/'
+propertyUri2 = 'https://blog.credit.com/'
+startDate = str(start)
+endDate = str(stop)
+startDate2 = str(start2)
+endDate2 = str(stop2)
+print('Call GSC Data for '+propertyUri+' from '+startDate+' to '+endDate)
+print('Call GSC Data for '+propertyUri2+' from '+startDate2+' to '+endDate2)
+# Rows start at 0, 5000 rows end w/ row 4999
+rowLimit = 5000
+searchType = 'web'
+aggregationType = 'byPage'
+startRow = 0
+dimensions = ['date','query','page']
+
+#Switch to guest wifi
+input('Before continuing, switch onto guest wifi and press enter:')
+
+# Define connection parameters
+scope = 'https://www.googleapis.com/auth/webmasters.readonly'
+client_secrets = 'C:\\users\\179019\\certs\\client_secrets.json'
+name = 'C:\\Users\\179019\\certs\\webmasters'
+version = 'v3'
+def execute_request(service, propertyUri, request):
+  return service.searchanalytics().query(siteUrl=propertyUri, body=request).execute()
+def execute_request2(service, propertyUri2, request):
+  return service.searchanalytics().query(siteUrl=propertyUri2, body=request).execute()
+# Initiate daily iteration
+start = datetime.strptime(startDate, '%Y-%m-%d')
+stop = datetime.strptime(endDate, '%Y-%m-%d')
+start2 = datetime.strptime(startDate2, '%Y-%m-%d')
+stop2 = datetime.strptime(endDate2, '%Y-%m-%d')
+while start <= stop:
+    # Run 3 batch requests, rows 0-14999 of most clicked queries
+    requestDate = start.strftime('%Y-%m-%d')
+    print('  '+requestDate+':', end='\r')
+    i = 0
+    while i < 3:
+        t1 = int(round(time.time() * 1000))
+        startRow = rowLimit*i
+        request = {
+            'startDate': requestDate,
+            'endDate': requestDate,
+            'rowLimit': rowLimit,
+            'searchType': searchType,
+            'aggregationType': aggregationType,
+            'startRow': startRow,
+            'dimensions': dimensions
+            }
+        
+        flags = [propertyUri, requestDate, requestDate]
+        
+        flow = client.flow_from_clientsecrets(client_secrets, scope=scope, message=tools.message_if_missing(client_secrets))
+        
+        storage = file.Storage(name + '.dat')
+        credentials = storage.get()
+        if credentials is None or credentials.invalid:
+          credentials = tools.run_flow(flow, storage, flags)
+        http = credentials.authorize(http= httplib2.Http(disable_ssl_certificate_validation=True))
+        http = credentials.authorize(http=build_http())
+        
+#        http.add_certificate(key=None, cert=cert, domain='www.googleapis.com')
+#        
+#        #******* CA CERT ********
+#        rqhttp = httplib2.http(, ca_certs=cert)
+#        requestBuilder = cert
+#        #************************
+#        #**********
+#        s = requests.Session()
+#        s.cert = cert
+#        #**********
+#        
+#        http.cert = cert
+        
+        service = discovery.build('webmasters', version, http=http)
+        
+        response = execute_request(service, propertyUri, request)
+        rows = response.get('rows')
+        
+        df = pd.DataFrame(rows, columns=['keys'])
+        df = df['keys'].apply(pd.Series)
+        df.columns = ['date', 'query', 'page']
+        scBase=df
+        df = pd.DataFrame(rows, columns=['position', 'impressions', 'clicks', 'ctr'])
+        scBase = pd.concat([scBase, df], axis=1)
+        if i==0:
+            intResult = scBase
+        else:
+            intResult = pd.concat([intResult,scBase])
+        # Avoid 5qps/200qpm search console limit
+        dt = int(round(time.time() * 1000))-t1
+        if dt < 333:
+            time.sleep(.333)
+        i = i + 1
+    
+    start = start + timedelta(days=+1)
+    result = pd.concat([result, intResult])
+    print(' Completed CCOM')
+while start2 <= stop2:
+    # Run 3 batch requests, rows 0-14999 of most clicked queries
+    requestDate = start2.strftime('%Y-%m-%d')
+    print('  '+requestDate+':', end='\r')
+    i = 0
+    while i < 3:
+        t1 = int(round(time.time() * 1000))
+        startRow = rowLimit*i
+        request = {
+            'startDate': requestDate,
+            'endDate': requestDate,
+            'rowLimit': rowLimit,
+            'searchType': searchType,
+            'aggregationType': aggregationType,
+            'startRow': startRow,
+            'dimensions': dimensions
+            }
+        
+        flags = [propertyUri2, requestDate, requestDate]
+        
+        flow = client.flow_from_clientsecrets(client_secrets, scope=scope, message=tools.message_if_missing(client_secrets))
+        
+        storage = file.Storage(name + '.dat')
+        credentials = storage.get()
+        if credentials is None or credentials.invalid:
+          credentials = tools.run_flow(flow, storage, flags)
+        http = credentials.authorize(http= httplib2.Http(disable_ssl_certificate_validation=True))
+        http = credentials.authorize(http=build_http())
+        
+#        http.add_certificate(key=None, cert=cert, domain='www.googleapis.com')
+#        
+#        #******* CA CERT ********
+#        rqhttp = httplib2.http(, ca_certs=cert)
+#        requestBuilder = cert
+#        #************************
+#        #**********
+#        s = requests.Session()
+#        s.cert = cert
+#        #**********
+#        
+#        http.cert = cert
+        
+        service = discovery.build('webmasters', version, http=http)
+        
+        response = execute_request2(service, propertyUri2, request)
+        rows = response.get('rows')
+        
+        df2 = pd.DataFrame(rows, columns=['keys'])
+        df2 = df2['keys'].apply(pd.Series)
+        df2.columns = ['date', 'query', 'page']
+        scBase2=df2
+        df2 = pd.DataFrame(rows, columns=['position', 'impressions', 'clicks', 'ctr'])
+        scBase2 = pd.concat([scBase2, df2], axis=1)
+        if i==0:
+            intResult2 = scBase2
+        else:
+            intResult2 = pd.concat([intResult2,scBase2])
+        # Avoid 5qps/200qpm search console limit
+        dt = int(round(time.time() * 1000))-t1
+        if dt < 333:
+            time.sleep(.333)
+        i = i + 1
+    
+    start2 = start2 + timedelta(days=+1)
+    result2 = pd.concat([result2, intResult2])
+    print(' Completed Blog')
+result = result.drop_duplicates()
+result = result.drop('keys', axis=1)
+result.to_csv('C:\\Users\\179019\\Documents\\ccom_gsc.csv', index=False)
+result2 = result2.drop_duplicates()
+result2 = result2.drop('keys', axis=1)
+result2.to_csv('C:\\Users\\179019\\Documents\\blog_gsc.csv', index=False)
+
+#Switch onto PGX network, output results to SQL table. 
+input("Press enter after switching to pgx network:")
+print('Thank you, loading into table now')
+
+result.to_sql('ccom_search_console_queries', engine, schema='dbo', if_exists='append', index=False)
+result2.to_sql('ccom_blog_search_console_queries', engine, schema='dbo', if_exists='append', index=False)
+print('Completed')
+
