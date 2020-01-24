@@ -1,0 +1,176 @@
+# Import libraries
+import json
+import pandas as pd
+from pandas.io.json import json_normalize
+import urllib.request
+import urllib.parse
+from datetime import datetime, timedelta
+import time
+import sqlalchemy
+import warnings
+# Ignore RuntimeWarning
+warnings.simplefilter(action='ignore', category=RuntimeWarning)
+# Set api strings
+apiType = 'bulk_ranks'
+rankType = 'all'
+apiBase = 'https://domain.getstat.com/api/v2/'
+apiKey = 'API KEY'
+apiUrl = apiBase + apiKey
+# Set Database Connection
+params = urllib.parse.quote_plus('params')
+engine = sqlalchemy.create_engine('engine' % params)
+# Dynamically Set Date Range
+sql = 'select max(date) as max_date from Database Connection'
+try:
+    connection = engine.connect()
+    result = connection.execute(sql)
+except:
+    print('1')
+    quit()
+for row in result:
+    max_date = row['max_date']
+start = datetime.strptime(max_date, '%Y-%m-%d').date() + timedelta(days=+1)
+stop = datetime.now().date() + timedelta(days=-1)
+# Define functions
+def getResponse(url):
+    with urllib.request.urlopen(url) as response:
+        return json.loads(response.read())
+def getResult(response):
+    return response.get('Response').get('Result')
+def getId(response):
+    return response.get('Response').get('Result').get('Id')
+def getNextPage(response):
+    return response.get('Response').get('nextpage')
+# Initiate bulk report & response loop
+while start <= stop:
+    kwFinalResult2 = pd.DataFrame()
+    answerTagResult2 = pd.DataFrame()
+    requestDate = start.strftime('%Y-%m-%d')
+    bulkRankRequest = '/bulk/ranks?date='+requestDate+'&rank_type='+rankType+'&format=json'
+    try:
+        response = getResponse(apiUrl+bulkRankRequest)
+        reportId = getId(response)
+    except:
+        print('2')
+        quit()
+    isCompleted = 'InProgress'
+    i = 0  
+    while isCompleted != 'Completed' and i<=10:
+        # Wait for report to complete
+        j = 0
+        while j < 4:
+            time.sleep(3)
+            j = j + 1
+        # Call bulk report list
+        bulkListResponse = getResponse(apiUrl+'/bulk/list?format=json')
+        bulkList = getResult(bulkListResponse)
+        flatBulkList = json_normalize(bulkList)
+        # Check report status & location    
+        reportDetails = flatBulkList.loc[flatBulkList['Id'] == reportId].reset_index()
+        isCompleted = reportDetails.at[0,'Status']    
+        bulkResponseUrl = reportDetails.at[0,'StreamUrl']
+        reportDate = reportDetails.at[0,'Date']
+        i = i + 1
+    if isCompleted == 'Completed':
+        bulkRanksResponse = getResponse(bulkResponseUrl)
+        all_result = bulkRanksResponse.get('Response').get('Project')
+        
+        for result in all_result:
+            #result = bulkRanksResponse.get('Response').get('Project')
+            domain = result.get('Name').replace('www.','')
+            result = result.get('Site').get('Keyword')
+            
+            if result:
+                #### Prepare Keyword Data for Table ####
+                kwBase = pd.DataFrame(result, columns=['CreatedAt', 'Id', 'Keyword', 'KeywordCategories', 'KeywordDevice', 'KeywordLocation', 'KeywordMarket',])
+                kwBase.columns = ['Created', 'Id', 'Keyword', 'Categories', 'Device', 'Location', 'Market']
+                kwBase['domain'] = domain
+                # Separate Keyword Stats
+                df = pd.DataFrame(result, columns=['KeywordStats'])
+                df=df['KeywordStats'].apply(pd.Series)
+                df=df.drop(df.columns[[3]], axis=1)
+                kwBase = pd.concat([kwBase, df], axis=1)
+                # Separate Rank Date
+                df = pd.DataFrame(result, columns=['Ranking'])
+                dfRank = df['Ranking'].apply(pd.Series)
+                df = dfRank['date']
+                kwBase = pd.concat([kwBase, df], axis=1)
+                # Prepare Google Rank Data    
+                df = dfRank['Google'].apply(pd.Series)
+                df = df['Result'].apply(pd.Series) # sort error (intentional)
+                dfGRank = pd.concat([df['BaseRank'], df['Rank'], df['Url']], axis=1)
+                dfGRank = dfGRank.loc[pd.isnull(dfGRank['BaseRank']) & pd.isnull(dfGRank['Rank']) & pd.isnull(dfGRank['Url']) == False]
+                del df['Rank']
+                del df['Url']
+                del df['BaseRank']
+                df = df.stack()
+                df = df.reset_index(level=1, drop=True)
+                df = df.apply(pd.Series)
+                dfGRank = dfGRank.append(df)
+                dfGRank['Engine'] = 'Google'
+                # Prepare Bing Rank Data
+                df = dfRank['Bing'].apply(pd.Series)
+                df = df['Result'].apply(pd.Series) # sort error (intentional)
+                dfBRank = pd.concat([df['Rank'], df['Url']], axis=1)
+                dfBRank = dfBRank.loc[pd.isnull(dfBRank['Rank']) & pd.isnull(dfBRank['Url']) == False]
+                del df['Rank']
+                del df['Url']
+                df = df.stack()
+                df = df.reset_index(level=1, drop=True)
+                df = df.apply(pd.Series)
+                dfBRank = dfBRank.append(df)
+                dfBRank['Engine'] = 'Bing'
+                dfBRank['BaseRank'] = dfBRank['Rank']   
+                # Combine Bing & Google Rank Data
+                RankBase = pd.concat([dfGRank, dfBRank])
+                # Join Keyword Data With Rank Data
+                kwFinalResult = kwBase.join(RankBase)
+                #### Prepare Answerbox Data for Table ####
+                answerTagBase = pd.DataFrame(result, columns=['Id', 'Keyword', 'KeywordDevice', 'KeywordLocation', 'KeywordMarket'])
+                answerTagBase.columns = ['keyword_id', 'keyword', 'device', 'location', 'market']
+                answerTagBase['domain'] = domain
+                # Capture Date Column
+                df = pd.DataFrame(result, columns=['Ranking'])
+                dfRank = df['Ranking'].apply(pd.Series)
+                df = dfRank['date']
+                answerTagBase = answerTagBase.join(df)
+                #Format, stack, arrange and rename answerbox columns
+                try:
+                     df = pd.DataFrame(result, columns=['KeywordTags'])
+                     df = df.dropna(axis=0, how='all')
+                     df = df.reset_index()
+                     df = pd.concat([pd.Series(row['index'], row['KeywordTags'].split(',')) for _, row in df.iterrows()]).reset_index()
+                     df = df[['index', 0]]
+                     df.columns = ['tags', 'index']
+                     df = df.set_index(['index'])   
+                     df = df.loc[df['tags'].str.contains('answers')]
+                     dft = df.loc[df['tags'].str.contains('triggered')]
+                     dft = dft['tags'].str.split(' ', 2, expand=True)
+                     dft = dft.drop(dft.columns[[0]], axis=1)
+                     dft.columns = ['type', 'triggered']
+                     dft['type'] = dft['type'].str.replace('(','').str.replace(')','')
+                     dfo = df.loc[df['tags'].str.contains('owned')]
+                     dfo = dfo['tags'].str.split(' ', 2, expand=True)
+                     dfo = dfo.drop(dfo.columns[[0, 1]], axis=1)
+                     dfo.columns = ['owned']
+                     df = dft.join(dfo)
+                except:
+                    print('No Keyword Tags')
+                # Join Keyword Data With Answerbox Data
+                answerTagResult = answerTagBase.join(df)
+                # Insert Data Into Tables
+                kwFinalResult2 = pd.concat([kwFinalResult2,kwFinalResult])
+                answerTagResult2 = pd.concat([answerTagResult2,answerTagResult])
+                try:
+                    kwFinalResult.to_sql('Insert database to house results', engine, schema='dbo', if_exists='append', index=False, chunksize=100)
+                    answerTagResult.to_sql('Insert database to house results', engine, schema='dbo', if_exists='append', index=False, chunksize=100)
+                except:
+                    print(4)
+                    quit()
+                    
+        start = start + timedelta(days=+1)
+
+    if isCompleted != 'Completed':
+        print('3')
+        quit() 
+print('0')
