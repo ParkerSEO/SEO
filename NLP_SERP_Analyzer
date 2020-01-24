@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jan 24 09:19:20 2020
+
+@author: 179019
+"""
+
+import pandas as pd
+import numpy as np
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+import os 
+import requests
+from bs4 import BeautifulSoup
+
+def get_top_keyword_urls(keyword_phrase, max_links=15):
+    MAX_LINKS = max_links   
+    KEYWORD = keyword_phrase 
+    path = r'C:\Users\179019\Downloads\chromedriver.exe'
+
+    print('figuring out how many possible links are available for keyword: \n{}\n'.format(KEYWORD))
+    driver = webdriver.Chrome(executable_path=path)
+    driver.get("https://www.google.com")
+    element = driver.find_element_by_xpath('//*[@id="tsf"]/div[2]/div[1]/div[1]/div/div[2]/input')
+    element.send_keys(KEYWORD) 
+    time.sleep(2)
+    element.send_keys(Keys.ENTER)
+    time.sleep(3)
+    results = driver.find_elements_by_xpath('//div[@class="r"]/a/h3')
+
+    iterations = len(results)
+    iters = min(iterations, MAX_LINKS)
+    print('Searching for links on google.com...\n')
+    driver.quit()
+    urls = list()
+
+    for i in range(iters):
+        driver = webdriver.Chrome(executable_path=path)
+        driver.get("https://www.google.com")
+        element = driver.find_element_by_xpath('//*[@id="tsf"]/div[2]/div[1]/div[1]/div/div[2]/input')
+        element.send_keys(KEYWORD)
+        time.sleep(2)
+        element.send_keys(Keys.ENTER)
+        time.sleep(3)
+        results = driver.find_elements_by_xpath('//div[@class="r"]/a/h3')
+        try:
+            results[i].click()
+    #         print(driver.current_url)
+            urls.append(driver.current_url)
+            time.sleep(5)
+        except:
+            continue
+        finally:
+            print((i+1)*100/iters, '% complete')
+            driver.quit()
+    
+    return urls
+
+
+def get_url_text(url):
+    res = requests.get(url)
+    html_page = res.content
+    soup = BeautifulSoup(html_page, 'lxml')
+    # soup.find_all('p')
+    article = soup.find('article')
+    try:
+        text = article.get_text()
+    except AttributeError:
+        text = 'Error:no_meaningful_text_found_on_page'
+    
+    return text
+
+
+urls = get_top_keyword_urls('free credit score', max_links=20)
+get_url_text(urls[0])
