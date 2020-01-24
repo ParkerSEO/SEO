@@ -1,0 +1,125 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jul 24 09:27:53 2019
+
+@author: 179019
+"""
+import datetime
+import time
+from random import randint
+import matplotlib.pyplot as plt
+import pandas as pd
+import pathlib as pl
+from pytrends.request import TrendReq
+import urllib
+import sqlalchemy
+
+# Setup connector & HTTP 400 error handling
+pytrends = TrendReq(hl='en-US', tz=360, timeout=(10,25), retries=2, backoff_factor=5.0)
+connector = TrendReq(hl='en-US', tz=360)
+
+# Datetime is set for today and goes back 5 years on a weekly frequency
+today = datetime.date.today()
+five_years_ago = today - datetime.timedelta(days=365 * 5)
+output_df = pd.DataFrame(index=pd.DatetimeIndex(start=five_years_ago, end=today, freq='w'))
+
+# Defines the path to the keyword list.
+path = pl.Path(r"C:\Users\179019\Desktop\Google Trends").resolve()
+
+# Specify the filename of a CSV with a list of keywords in the variable, keywordcsv
+# The CSV should be one column, with header equal to Keywords (case sensitive)
+keywordcsv = path / "kw_list.csv"
+Keywords = pd.read_csv(keywordcsv)
+
+# Looping through rows of Keyword dataframe
+for ndx in Keywords.index:
+    keyword = Keywords.loc[ndx, 'Keyword'] 
+    print(f"Downloading Keyword #{ndx + 1}: {keyword}")
+    payload = {'geo': 'US', 'q': [keyword]} 
+    time.sleep(randint(5, 10))
+    connector.build_payload([keyword], cat=0, timeframe='today 5-y', geo='', gprop='')   
+    # Returns a dataframe with indices of dates and first column (keyword)
+    trenddata = connector.interest_over_time()
+    try:
+        output_df.loc[trenddata.index, keyword] = trenddata.loc[:, keyword]
+    except KeyError:
+        output_df.loc[trenddata.index, keyword] = None
+        
+# Sorts by dates descending
+output_df.sort_index(inplace=True, ascending=False)
+
+output_df2 = ((output_df.iloc[0] + output_df.iloc[1])/(output_df.iloc[2] + output_df.iloc[3])-1)*100
+output_df.loc['Trenddata 2wk']=output_df2
+output_df.append(output_df2, ignore_index=True)
+
+output_df3 = ((output_df.iloc[0] + output_df.iloc[1] + output_df.iloc[2] + output_df.iloc[3])/(output_df.iloc[4] + output_df.iloc[5] + output_df.iloc[6] + output_df.iloc[7])-1)*100
+output_df.loc['Trenddata 4wk']=output_df3
+output_df.append(output_df3, ignore_index=True)
+
+# =============================================================================
+# To play around with to get top values
+# Output_df.sort_values('credit score', ascending=False).head().index
+# =============================================================================
+
+# Print upon completion of TrendsAPI_SEO scrape fills blank values with Null
+output_df.fillna("Null", inplace = True)
+output_df=output_df.loc[["Trenddata 2wk", "Trenddata 4wk"]+list(output_df.index[:-2])]
+output_df.to_csv(path / "trends_slope.csv", sep=",", encoding="utf-8", index=True)
+print("TrendsAPI SEO and CSV export complete.")
+
+# Resamples all the dates, predict 28d before a rewrite should occur
+top_ten_dict={}
+for Keyword in Keywords.loc[:, 'Keyword'].unique():
+    output_slopeseries = (output_df.loc[pd.to_datetime(output_df.index[2:]), Keyword]
+                      .resample("28d").mean().astype(int)
+                      .diff()
+                      .sort_values(ascending=False))
+    top_ten_dict[Keyword]=[pd.to_datetime(d)-datetime.timedelta(days=28) for d in output_slopeseries.index[:10].values]
+    top_ten_dict[f'{Keyword} Mean']=[s for s in output_slopeseries[:10]]
+
+# Print upon completion of TrendsAPI_SEO scrape to provide top ten times to rewrite content
+top_tendf=pd.DataFrame(top_ten_dict)
+top_tendf.to_csv(path / "content_slope.csv", sep=",", encoding="utf-8", index=True)
+print("TrendsAPI Top 10 to CSV export complete")
+
+# NEED TO ADD ERROR HANDLING FOR ROWS 70-83!!!!
+
+# Uploads trend data into DB 
+input("Please press enter after connecting to network:")
+params = urllib.parse.quote_plus('driver={SQL Server Native Client 10.0};server=SQLREPORTSAPPSL;database=CCOM_Staging;Integrated Security=SSPI;Trusted_Connection=yes;')
+engine = sqlalchemy.create_engine('mssql+pyodbc:///?odbc_connect=%s' % params)
+google_trends = pd.read_csv(("C:\\Users\\179019\\Desktop\\Google Trends\\trends_slope.csv"))
+google_trends.to_sql('ccom_GoogleTrends', engine, schema='dbo', if_exists='replace', index=False, chunksize=100)
+print('Google Trends file uploaded')
+engine.dispose()
+
+# =============================================================================
+# Visual line plot of all, multiple, or singular keywords
+# For multiple and singular keywords substitute column name
+# =============================================================================
+
+# =============================================================================
+# All keyword plotting
+fig, ax = plt.subplots(figsize=[12, 8])
+for keyword in output_df.columns:
+    ax.plot(output_df.index, output_df.loc[:, keyword], label=keyword)
+ax.set_title('TrendsAPI_SEO All', fontsize=16)
+ax.legend(fontsize=12)
+ax.tick_params(right=True, labelright=True, labelsize=12)
+# =============================================================================
+# Multiple keyword plotting
+fig, ax = plt.subplots(figsize=[12, 8])
+for keyword in ['free credit score','credit check free']:
+    ax.plot(output_df.index, output_df.loc[:, keyword], label=keyword)
+ax.set_title('TrendsAPI_SEO Multi', fontsize=16)
+ax.legend(fontsize=12)
+ax.tick_params(right=True, labelright=True, labelsize=12)
+# =============================================================================
+# Singular keyword plotting
+fig, ax = plt.subplots(figsize=[12, 8])
+for keyword in ['free credit score']:
+    ax.plot(output_df.index, output_df.loc[:, keyword], label=keyword)
+ax.set_title('TrendsAPI_SEO Singular', fontsize=16)
+ax.legend(fontsize=12)
+ax.tick_params(right=True, labelright=True, labelsize=12)
+# =============================================================================
