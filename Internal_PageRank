@@ -1,0 +1,18 @@
+library("igraph")
+# Screaming Frog All Outlink CSV.
+links <- read.csv("//bataan/ccom/Analytics/Parker/SEO Scripts/Internal PageRank/all_outlinks.csv", skip = 1)
+# Filters for JavaScript, CSS, and Image files.
+links <- subset(links, Type=="AHREF")
+links <- subset(links, Follow=="true")
+links <- subset(links, select=c(Source,Destination))
+g <- graph.data.frame(links)
+pr <- page.rank(g, algo = "prpack", vids = V(g), directed = TRUE, damping = 0.85)
+values <- data.frame(pr$vector)
+values$names <- rownames(values)
+row.names(values) <- NULL
+values <- values[c(2,1)]
+names(values)[1] <- "url"
+names(values)[2] <- "pagerank"
+# Use your domain name.
+values <- values[grepl("https?:\\/\\/(.*\\.)?lexingtonlaw\\.com.*", values$url),]
+write.csv(values, file = "//bataan/ccom/Analytics/Parker/SEO Scripts/Internal PageRank/Internal_PageRank_ll.csv", row.names = FALSE) #Output file
